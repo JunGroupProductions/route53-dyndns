@@ -132,7 +132,7 @@ def main():
     parser.add_argument('-v', '--verbose', help='enable verbose output',
                         action="store_true")
     parser.add_argument('-l', '--local', help='Update Route53 A record with local IP address of the system instead of the external IP address.')
-    parser.add_argument('-h', '--host_ip', help='Update Route53 A record with IP address of provided hostname.')
+    parser.add_argument('-h', '--ip_of_hostname', help='Update Route53 A record with IP address of provided hostname.')
     args = parser.parse_args()
 
     if args.record is None:
@@ -152,9 +152,9 @@ def main():
     zone_to_update = '.'.join(record_to_update.split('.')[-2:])
     logging.info(f'Route53 zone: {zone_to_update}')
 
-    if args.host_ip:
-        print(f'Getting IP address of ${args.host_ip}')
-        current_ip = get_ip_of_hostname(args.host_ip)
+    if args.ip_of_hostname:
+        print(f'Getting IP address of ${args.ip_of_hostname}')
+        current_ip = get_ip_of_hostname(args.ip_of_hostname)
     elif args.local:
         print('Getting current local IP address')
         current_ip = get_current_local_ip()
