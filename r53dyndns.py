@@ -11,10 +11,12 @@ import os
 import socket
 import boto3
 
+
 def get_ip_of_hostname(hostname):
     ip = socket.gethostbyname(hostname)
     logging.info(f'IP Address of ${hostname}: ${ip}')
     return ip
+
 
 def get_current_local_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -23,12 +25,13 @@ def get_current_local_ip():
     s.close()
     logging.info(f'Current local IP address: {current_ip}')
     return current_ip
-    
+
+
 def get_current_public_ip():
     resolver = dns.resolver.Resolver()
-    resolver.nameservers=[socket.gethostbyname('resolver1.opendns.com')]
+    resolver.nameservers = [socket.gethostbyname('resolver1.opendns.com')]
 
-    for rdata in resolver.query('myip.opendns.com', 'A') :
+    for rdata in resolver.query('myip.opendns.com', 'A'):
         current_ip = str(rdata)
 
     logging.info(f'Current IP address: {current_ip}')
@@ -53,12 +56,12 @@ def get_zone(zone_to_update):
     return hosted_zone_id
 
 
-def get_record_ip(hosted_zone_id, record_to_update):
+def get_record_value(hosted_zone_id, record_to_update, record_type):
     client = boto3.client('route53')
     record_set = client.list_resource_record_sets(
         HostedZoneId=hosted_zone_id,
         StartRecordName=record_to_update,
-        StartRecordType='A',
+        StartRecordType=record_type,
         MaxItems='1'
     )
 
@@ -72,8 +75,7 @@ def get_record_ip(hosted_zone_id, record_to_update):
     return record_ip
 
 
-def update_record(hosted_zone_id, record_to_update, current_ip):
-
+def update_record(hosted_zone_id, record_to_update, record_type, record_value):
     def get_change_status(change_id):
         client = boto3.client('route53')
         change_status = client.get_change(
@@ -86,7 +88,6 @@ def update_record(hosted_zone_id, record_to_update, current_ip):
 
         return status
 
-
     client = boto3.client('route53')
     change = client.change_resource_record_sets(
         HostedZoneId=hosted_zone_id,
@@ -97,11 +98,11 @@ def update_record(hosted_zone_id, record_to_update, current_ip):
                     'Action': 'UPSERT',
                     'ResourceRecordSet': {
                         'Name': record_to_update,
-                        'Type': 'A',
+                        'Type': record_type,
                         'TTL': 60,
                         'ResourceRecords': [
                             {
-                                'Value': current_ip
+                                'Value': record_value
                             }
                         ]
                     }
@@ -128,13 +129,15 @@ def update_record(hosted_zone_id, record_to_update, current_ip):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Update a Route53 hosted A record with with current external IP address of the system.')
+    parser = argparse.ArgumentParser(
+        description='Update a Route53 hosted A record with with current external IP address of the system.')
     parser.add_argument('-r', '--record', help='specify the DNS A record to update')
     parser.add_argument('-v', '--verbose', help='enable verbose output',
                         action="store_true")
     args = parser.parse_args()
 
     route53_record_ip = os.getenv('ROUTE53_DOMAIN_A_RECORD_IP')
+    route53_cname_record = os.getenv('ROUTE53_DOMAIN_CNAME_RECORD')
     route53_record_ip_local = os.getenv('ROUTE53_DOMAIN_A_RECORD_IP_LOCAL')
 
     if args.record is None:
@@ -154,6 +157,8 @@ def main():
     zone_to_update = '.'.join(record_to_update.split('.')[-2:])
     logging.info(f'Route53 zone: {zone_to_update}')
 
+    logging.info(f'Updating CNAME record: {route53_cname_record} with {record_to_update}')
+
     if route53_record_ip:
         print(f'Updating A record with {route53_record_ip}')
         current_ip = route53_record_ip
@@ -165,16 +170,27 @@ def main():
         current_ip = get_current_public_ip()
 
     hosted_zone_id = get_zone(zone_to_update)
-    record_ip = get_record_ip(hosted_zone_id, record_to_update)
 
-    if current_ip == record_ip:
-        print('IP addresses match - nothing to do')
+    record_ip = get_record_value(hosted_zone_id, record_to_update, 'A')
+    record_cname_value = get_record_value(hosted_zone_id, record_to_update, 'CNAME')
+
+    if current_ip == record_ip and record_cname_value == record_to_update:
+        print('Records match - nothing to do')
         exit(0)
 
-    status = update_record(hosted_zone_id, record_to_update, current_ip)
+    status = update_record(hosted_zone_id, record_to_update, 'A', current_ip)
 
     if status == 'INSYNC':
-        print(f'Updated A record {record_to_update} in hosted zone {zone_to_update} ({hosted_zone_id}) from {record_ip} to {current_ip}')
+        print(
+            f'Updated A record {record_to_update} in hosted zone {zone_to_update} ({hosted_zone_id}) from '
+            f'{record_ip} to {current_ip}')
+
+    status = update_record(hosted_zone_id, route53_cname_record, 'CNAME', record_to_update)
+
+    if status == 'INSYNC':
+        print(
+            f'Updated CNAME record {record_to_update} in hosted zone '
+            f'{zone_to_update} ({hosted_zone_id}) from {record_cname_value} to {record_to_update}')
 
 
 if __name__ == '__main__':
