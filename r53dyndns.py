@@ -5,6 +5,8 @@
 
 import argparse
 import logging
+import time
+
 import dns
 import dns.resolver
 import os
@@ -120,6 +122,7 @@ def update_record(hosted_zone_id, record_to_update, record_type, record_value):
         logging.info('Waiting for change to complete...')
 
     while status == 'PENDING':
+        time.sleep(2)
         status = get_change_status(change_id)
 
     if status == 'INSYNC':
@@ -157,8 +160,6 @@ def main():
     zone_to_update = '.'.join(record_to_update.split('.')[-2:])
     logging.info(f'Route53 zone: {zone_to_update}')
 
-    logging.info(f'Updating CNAME record: {route53_cname_record} with {record_to_update}')
-
     if route53_record_ip:
         print(f'Updating A record with {route53_record_ip}')
         current_ip = route53_record_ip
@@ -172,25 +173,25 @@ def main():
     hosted_zone_id = get_zone(zone_to_update)
 
     record_ip = get_record_value(hosted_zone_id, record_to_update, 'A')
-    record_cname_value = get_record_value(hosted_zone_id, record_to_update, 'CNAME')
 
-    if current_ip == record_ip and record_cname_value == record_to_update:
-        print('Records match - nothing to do')
-        exit(0)
+    if current_ip != record_ip:
+        logging.info(f'Updating A record: {record_to_update} with {current_ip}')
+        status = update_record(hosted_zone_id, record_to_update, 'A', current_ip)
 
-    status = update_record(hosted_zone_id, record_to_update, 'A', current_ip)
+        if status == 'INSYNC':
+            print(
+                f'Updated A record {record_to_update} in hosted zone {zone_to_update} ({hosted_zone_id}) from '
+                f'{record_ip} to {current_ip}')
 
-    if status == 'INSYNC':
-        print(
-            f'Updated A record {record_to_update} in hosted zone {zone_to_update} ({hosted_zone_id}) from '
-            f'{record_ip} to {current_ip}')
+    if route53_cname_record and record_to_update != get_record_value(hosted_zone_id, record_to_update, 'CNAME'):
+        logging.info(f'Updating CNAME record: {route53_cname_record} with {record_to_update}')
 
-    status = update_record(hosted_zone_id, route53_cname_record, 'CNAME', record_to_update)
+        status = update_record(hosted_zone_id, route53_cname_record, 'CNAME', record_to_update)
 
-    if status == 'INSYNC':
-        print(
-            f'Updated CNAME record {record_to_update} in hosted zone '
-            f'{zone_to_update} ({hosted_zone_id}) from {record_cname_value} to {record_to_update}')
+        if status == 'INSYNC':
+            print(
+                f'Updated CNAME record {record_to_update} in hosted zone '
+                f'{zone_to_update} ({hosted_zone_id}) to {record_to_update}')
 
 
 if __name__ == '__main__':
